@@ -148,9 +148,9 @@ let items = (graphClient.Me.Drive.Root)  |> getFiles  "" |> Async.RunSynchronous
                     
 
 let dest = "D:\matze\1drive#"
-items |> parallelWithThrottle 3 (downLoad dest)
+items |> parallelWithThrottle 10 (downLoad dest)
 
-Console.ReadKey |> ignore
+Console.ReadLine |> ignore
 
 
 
