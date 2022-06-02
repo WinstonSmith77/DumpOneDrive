@@ -17,7 +17,9 @@ type Item = { Name  : string;
               [<JsonIgnore>]
               IsFile : bool
               [<JsonIgnore>]
-              Size : Nullable<int64>}
+              Size : Nullable<int64>
+              [<JsonIgnore>]
+              Hash : string}
 
 let getResult (task:Task<'a>) =
     task.GetAwaiter().GetResult()
@@ -75,7 +77,15 @@ let getFiles path (request: IDriveItemRequestBuilder)  =
    async{
       request.RequestUrl |> dumpIgnore
       let! response = request.Children.Request().GetAsync() |> Async.AwaitTask
-      return response |> Seq.map (fun (i:DriveItem) ->  {Name = i.Name; ID = i.Id; URL = i.WebUrl; IsFolder = i.Folder <> null; Path = path; IsFile = i.File <> null; Size = i.Size}) 
+      return response |> Seq.map (fun (i:DriveItem) ->
+        {Name = i.Name
+         ID = i.Id
+         URL = i.WebUrl
+         IsFolder = i.Folder <> null
+         Path = path
+         IsFile = i.File <> null
+         Size = i.Size
+         Hash = if i.File <> null then i.File.Hashes.QuickXorHash else ""}) 
        |> List.ofSeq 
    }
                   
