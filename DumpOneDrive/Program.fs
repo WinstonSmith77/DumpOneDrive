@@ -22,9 +22,10 @@ type Item = { Name  : string;
 let getResult (task:Task<'a>) =
     task.GetAwaiter().GetResult()
     
-let Dump a =
+let dump a =
         Console.WriteLine(a.ToString())
         a
+let dumpIgnore a = (dump a) |> ignore        
 
 let getTokenBuilder () = 
    let getAuth () = 
@@ -38,7 +39,7 @@ let getTokenBuilder () =
                         .WithDefaultRedirectUri()
                         .WithBroker()
                         .Build();
-       let useDefault = false
+       let useDefault = true
            
        (if useDefault then
          clientApp.AcquireTokenSilent(scopes, PublicClientApplication.OperatingSystemAccount).ExecuteAsync()
@@ -72,7 +73,7 @@ let graphClient =  createAuth  |> GraphServiceClient
         
 let getFiles path (request: IDriveItemRequestBuilder)  =
    async{
-      request.RequestUrl |> Dump
+      request.RequestUrl |> dumpIgnore
       let! response = request.Children.Request().GetAsync() |> Async.AwaitTask
       return response |> Seq.map (fun (i:DriveItem) ->  {Name = i.Name; ID = i.Id; URL = i.WebUrl; IsFolder = i.Folder <> null; Path = path; IsFile = i.File <> null; Size = i.Size}) 
        |> List.ofSeq 
@@ -107,17 +108,20 @@ let rec  getAllFiles2 root =
     }
 
 let downLoad dest item =
-  let destPath = Path.Combine(dest, item.Path, item.Name)
+  let path = Path.Combine(dest, item.Path, item.Name)
   async {
-    if File.Exists destPath then
-        ()
+    if File.Exists path then
+        return $"Exits {path}"
     else 
-        use! stream =  graphClient.Me.Drive.Items[item.ID].Content.Request().GetAsync() |> Async.AwaitTask
-        Directory.CreateDirectory(Path.GetDirectoryName(destPath)) |> ignore
-        use file = new FileStream(destPath,FileMode.CreateNew)
-      
-        stream.CopyToAsync(file) |> Async.AwaitTask |> ignore  
-        destPath |> Dump |> ignore
+       try
+            use! stream =  graphClient.Me.Drive.Items[item.ID].Content.Request().GetAsync() |> Async.AwaitTask
+            Directory.CreateDirectory(Path.GetDirectoryName(path)) |> ignore
+            use file = new FileStream(path,FileMode.CreateNew)
+          
+            stream.CopyTo(file) 
+            return path
+       with
+        |  ex -> return $"Excep {ex.ToString()}"
    }
 
 let  parallelWithThrottle limit operation items=
@@ -126,22 +130,27 @@ let  parallelWithThrottle limit operation items=
    
     items |> Seq.iter(fun item -> 
         semaphore.Wait()
-        async{
-            try
-                do! (operation item)
-            finally
-                continueAction()
-        } |> Async.Start
+        let temp =
+            async{
+                try
+                    let! (result:string)  = (operation item)
+                    result |> dumpIgnore
+                finally
+                    continueAction()
+            }
+        temp |> Async.Start
       ) 
 
 
 let items = (graphClient.Me.Drive.Root)  |> getFiles  "" |> Async.RunSynchronously
-                    |> List.where (fun i -> i.Name.StartsWith("#") |> not && (i.Name.Contains("books") || i.Name.Contains("iTxx")))
+                    |> List.where (fun i -> i.Name.StartsWith("#") |> not && (i.Name.Contains("books") || i.Name.Contains("iT")))
                     |> getAllFiles2 
                     
 
-let dest = "d:\matze\1Drive###"
-items |> parallelWithThrottle 5 (downLoad dest) 
+let dest = "C:\Users\matze\AppData\Local\Temp\####1Drive###"
+items |> parallelWithThrottle 5 (downLoad dest)
+
+Console.ReadKey |> ignore
 
 
 
