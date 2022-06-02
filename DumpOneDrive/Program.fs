@@ -1,5 +1,6 @@
 ﻿open System
 open System.IO
+open System.Net.Http.Headers
 open System.Threading
 open System.Threading.Tasks
 open System.Text.Json.Serialization
@@ -20,6 +21,10 @@ type Item = { Name  : string;
 
 let getResult (task:Task<'a>) =
     task.GetAwaiter().GetResult()
+    
+let Dump a =
+        Console.WriteLine(a.ToString())
+        a
 
 let getTokenBuilder () = 
    let getAuth () = 
