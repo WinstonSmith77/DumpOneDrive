@@ -28,28 +28,30 @@ let Dump a =
 
 let getTokenBuilder () = 
    let getAuth () = 
-       let ClientId = "4a1aa1d5-c567-49d0-ad0b-cd957a47f842"
-       let Tenant = "common";
-       let Instance = "https://login.microsoftonline.com/";
-       let Scopes = [ "user.read"; "Files.ReadWrite.All"; "Sites.Readwrite.All"; "Sites.Manage.All"];
+       let clientId = "4a1aa1d5-c567-49d0-ad0b-cd957a47f842"
+       let tenant = "common";
+       let instance = "https://login.microsoftonline.com/";
+       let scopes = [ "user.read"; "Files.ReadWrite.All"; "Sites.Readwrite.All"; "Sites.Manage.All"];
        
-       let clientApp = PublicClientApplicationBuilder.Create(ClientId)
-                        .WithAuthority($"{Instance}{Tenant}")
+       let clientApp = PublicClientApplicationBuilder.Create(clientId)
+                        .WithAuthority($"{instance}{tenant}")
                         .WithDefaultRedirectUri()
                         .WithBroker()
                         .Build();
        let useDefault = false
            
        (if useDefault then
-         clientApp.AcquireTokenSilent(Scopes, PublicClientApplication.OperatingSystemAccount).ExecuteAsync()
+         clientApp.AcquireTokenSilent(scopes, PublicClientApplication.OperatingSystemAccount).ExecuteAsync()
        else
          let wndHandle = Process.GetCurrentProcess().MainWindowHandle;
 
         //var accounts = clientApp.GetAccountsAsync();	
 
-         clientApp.AcquireTokenInteractive(Scopes).WithParentActivityOrWindow(wndHandle) // optional, used to center the browser on the window
-                                                                 .WithPrompt(Prompt.SelectAccount)
-                                                               .ExecuteAsync())
+         clientApp.AcquireTokenInteractive(scopes)
+                          //.WithParentActivityOrWindow(wndHandle)
+                          .WithPrompt(Prompt.SelectAccount)
+                          .ExecuteAsync()
+        )
         |> getResult                                                       
 
    let mutable authResult  =  getAuth ()
@@ -61,16 +63,16 @@ let getTokenBuilder () =
                 authResult.AccessToken)
 
 let createAuth = 
-       let Bearer = "Bearer"
+       let bearer = "Bearer"
        let getToken = getTokenBuilder()
-       DelegateAuthenticationProvider(fun request -> Task.FromResult(request.Headers.Authorization <- AuthenticationHeaderValue(Bearer, getToken()))) 
+       DelegateAuthenticationProvider(fun request -> Task.FromResult(request.Headers.Authorization <- AuthenticationHeaderValue(bearer, getToken()))) 
       
 let graphClient =  createAuth  |> GraphServiceClient
 
         
 let getFiles path (request: IDriveItemRequestBuilder)  =
    async{
-      //request.RequestUrl |> Dump
+      request.RequestUrl |> Dump
       let! response = request.Children.Request().GetAsync() |> Async.AwaitTask
       return response |> Seq.map (fun (i:DriveItem) ->  {Name = i.Name; ID = i.Id; URL = i.WebUrl; IsFolder = i.Folder <> null; Path = path; IsFile = i.File <> null; Size = i.Size}) 
        |> List.ofSeq 
@@ -134,9 +136,10 @@ let  parallelWithThrottle limit operation items=
 
 
 let items = (graphClient.Me.Drive.Root)  |> getFiles  "" |> Async.RunSynchronously
-                    |> List.where (fun i -> i.Name.StartsWith("#") |> not && (i.Name.Contains("books") || i.Name.Contains("iT")))
+                    |> List.where (fun i -> i.Name.StartsWith("#") |> not && (i.Name.Contains("books") || i.Name.Contains("iTxx")))
                     |> getAllFiles2 
                     
+
 let dest = "d:\matze\1Drive###"
 items |> parallelWithThrottle 5 (downLoad dest) 
 
