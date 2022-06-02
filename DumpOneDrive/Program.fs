@@ -4,6 +4,8 @@ open System.Threading
 open System.Threading.Tasks
 open System.Text.Json.Serialization
 open System.Diagnostics
+open Microsoft.Graph
+open Microsoft.Identity.Client
 
 type Item = { Name  : string;
               Path : string
@@ -36,7 +38,7 @@ let getTokenBuilder () =
        (if useDefault then
          clientApp.AcquireTokenSilent(Scopes, PublicClientApplication.OperatingSystemAccount).ExecuteAsync()
        else
-         let wndHandle = Process.GetProcessById(Util.HostProcessID).MainWindowHandle;
+         let wndHandle = Process.GetCurrentProcess().MainWindowHandle;
 
         //var accounts = clientApp.GetAccountsAsync();	
 
