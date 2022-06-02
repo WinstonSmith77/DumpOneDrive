@@ -143,12 +143,12 @@ let  parallelWithThrottle limit operation items=
 
 
 let items = (graphClient.Me.Drive.Root)  |> getFiles  "" |> Async.RunSynchronously
-                    |> List.where (fun i -> i.Name.StartsWith("#") |> not && (i.Name.Contains("books") || i.Name.Contains("iT")))
+                    |> List.where (fun i -> i.Name.StartsWith("#") |> not && (i.Name.Contains("books") || i.Name.Contains("")))
                     |> getAllFiles2 
                     
 
-let dest = "C:\Users\matze\AppData\Local\Temp\####1Drive###"
-items |> parallelWithThrottle 5 (downLoad dest)
+let dest = "D:\matze\1drive#"
+items |> parallelWithThrottle 3 (downLoad dest)
 
 Console.ReadKey |> ignore
 
