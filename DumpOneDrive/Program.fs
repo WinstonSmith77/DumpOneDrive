@@ -17,9 +17,9 @@ type Item = { Name  : string;
               [<JsonIgnore>]
               IsFile : bool
               [<JsonIgnore>]
-              Size : Nullable<int64>
+              Size : int64 Option
               [<JsonIgnore>]
-              Hash : string}
+              Hash : string Option}
 
 let getResult (task:Task<'a>) =
     task.GetAwaiter().GetResult()
@@ -79,14 +79,14 @@ let getFiles path (request: IDriveItemRequestBuilder)  =
          IsFolder = i.Folder <> null
          Path = path
          IsFile = i.File <> null
-         Size = i.Size
-         Hash = if i.File <> null then i.File.Hashes.QuickXorHash else ""}) 
+         Size = Option.ofNullable i.Size
+         Hash = if i.File <> null && i.File.Hashes <> null && i.File.Hashes.QuickXorHash <> null then Some i.File.Hashes.QuickXorHash else None}) 
        |> List.ofSeq 
    }
                
 let expandFolders (graphClient:GraphServiceClient) folders =
     folders |> List.map (fun i -> getFiles (Path.Combine(i.Path, i.Name)) (graphClient.Me.Drive.Items[i.ID])) 
-    |> (fun p -> Async.Parallel(p, 10))
+    |> (fun p -> Async.Parallel(p, 5))
    // |> Async.Parallel
     |> Async.RunSynchronously
     |> Array.collect Array.ofList
@@ -113,24 +113,31 @@ let rec  getAllFiles2  (graphClient:GraphServiceClient) root =
     }
 
 let downLoad  (graphClient:GraphServiceClient) dest item =
-  let path = Path.Combine(dest, item.Path, item.Name)
-  async {
+    let path = Path.Combine(dest, item.Path, item.Name)
     if File.Exists path then
-        return $"Exits {path}"
+         $"Exits {path}"
     else 
        try
-            use! stream =  graphClient.Me.Drive.Items[item.ID].Content.Request().GetAsync() |> Async.AwaitTask
-            Directory.CreateDirectory(Path.GetDirectoryName(path)) |> ignore
-            use file = new FileStream(path,FileMode.CreateNew)
+            match item.Size with
+            | Some 0L ->
+                File.Create(path).Dispose()
+                path
+            | Some length when length > int64(250 * 1024 * 1024) -> "Too Long" 
+            | _ ->
+               
+                use stream =  graphClient.Me.Drive.Items[item.ID].Content.Request().GetAsync() |> Async.AwaitTask |> Async.RunSynchronously
+                Directory.CreateDirectory(Path.GetDirectoryName(path)) |> ignore
+                use file = new FileStream(path,FileMode.CreateNew)
+                stream.CopyTo(file)
+                $"{path} Downloaded" 
           
-            stream.CopyTo(file) 
-            return path
+           
        with
-        |  ex -> return $"Excep {ex.ToString()}"
-   }
+        |  ex ->  $"Excep {path}{ex.ToString()}{if ex.InnerException <> null then ex.InnerException.ToString() else String.Empty}"
+   
 
 let  parallelWithThrottle limit operation items=
-    use semaphore = new SemaphoreSlim(limit, limit)
+    let semaphore = new SemaphoreSlim(limit, limit)
     let continueAction = fun () -> semaphore.Release() |> ignore
    
     items |> Seq.iter(fun item -> 
@@ -138,8 +145,7 @@ let  parallelWithThrottle limit operation items=
         let temp =
             async{
                 try
-                    let! (result:string)  = (operation item)
-                    result |> dumpIgnore
+                    (operation item) |> dumpIgnore
                 finally
                     continueAction()
             }
@@ -149,12 +155,12 @@ let  parallelWithThrottle limit operation items=
 let graphClient =  createAuth  |> GraphServiceClient
 
 let items = (graphClient.Me.Drive.Root)  |> getFiles  "" |> Async.RunSynchronously
-                    |> List.where (fun i -> i.Name.StartsWith("#") |> not && (i.Name.Contains("books") || i.Name.Contains("books")))
+                    |> List.where (fun i -> i.Name.StartsWith("#") |> not && (i.Name.Contains("books") || i.Name.Contains("")))
                     |> getAllFiles2  graphClient
                     
 
-let dest = "c:\dump\matze\1drive#"
-items |> parallelWithThrottle 10 (downLoad graphClient dest)
+let dest = "D:\matze\1drive##"
+items |> parallelWithThrottle 5 (downLoad graphClient dest)
 
 Console.WriteLine "Done!"
 Console.Read() |> ignore 
