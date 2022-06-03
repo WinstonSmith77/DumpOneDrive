@@ -41,7 +41,8 @@ let getTokenBuilder () =
                         .WithDefaultRedirectUri()
                         .WithBroker()
                         .Build();
-       let useDefault = true
+       
+       let useDefault = false
            
        (if useDefault then
          clientApp.AcquireTokenSilent(scopes, PublicClientApplication.OperatingSystemAccount).ExecuteAsync()
@@ -57,22 +58,16 @@ let getTokenBuilder () =
         )
         |> getResult                                                       
 
-   let mutable authResult  =  getAuth ()
-   let mutable lastCreated = DateTime.Now
+   let  authResult  =  getAuth ()
    
-   (fun () ->   if (DateTime.Now - lastCreated).TotalSeconds > float(10 * 60) then
-                    authResult <- getAuth()
-                    lastCreated <- DateTime.Now
-                authResult.AccessToken)
+   
+   (fun () ->  authResult.AccessToken)
 
 let createAuth = 
        let bearer = "Bearer"
        let getToken = getTokenBuilder()
        DelegateAuthenticationProvider(fun request -> Task.FromResult(request.Headers.Authorization <- AuthenticationHeaderValue(bearer, getToken()))) 
-      
-let graphClient =  createAuth  |> GraphServiceClient
 
-        
 let getFiles path (request: IDriveItemRequestBuilder)  =
    async{
       request.RequestUrl |> dumpIgnore
@@ -88,10 +83,10 @@ let getFiles path (request: IDriveItemRequestBuilder)  =
          Hash = if i.File <> null then i.File.Hashes.QuickXorHash else ""}) 
        |> List.ofSeq 
    }
-                  
-let expandFolders folders =
+               
+let expandFolders (graphClient:GraphServiceClient) folders =
     folders |> List.map (fun i -> getFiles (Path.Combine(i.Path, i.Name)) (graphClient.Me.Drive.Items[i.ID])) 
-    |> (fun p -> Async.Parallel(p, 5))
+    |> (fun p -> Async.Parallel(p, 10))
    // |> Async.Parallel
     |> Async.RunSynchronously
     |> Array.collect Array.ofList
@@ -105,19 +100,19 @@ let expandFolders folders =
 //  | _ -> let expandedFolders = expandFolders folders
 //         (getAllFiles expandedFolders) @ files
 
-let rec  getAllFiles2 root =
+let rec  getAllFiles2  (graphClient:GraphServiceClient) root =
  seq{
      let (folders, files) = root |> List.where (fun i -> i.IsFolder || i.IsFile) 
                             |> List.partition (fun i -> i.IsFolder) 
      yield! files
      match folders with
       | [] -> ()
-      | _ -> let expandedFolders = expandFolders folders
-             yield! getAllFiles2 expandedFolders
+      | _ -> let expandedFolders = expandFolders  graphClient folders
+             yield! getAllFiles2 graphClient expandedFolders
              ()
     }
 
-let downLoad dest item =
+let downLoad  (graphClient:GraphServiceClient) dest item =
   let path = Path.Combine(dest, item.Path, item.Name)
   async {
     if File.Exists path then
@@ -151,16 +146,18 @@ let  parallelWithThrottle limit operation items=
         temp |> Async.Start
       ) 
 
+let graphClient =  createAuth  |> GraphServiceClient
 
 let items = (graphClient.Me.Drive.Root)  |> getFiles  "" |> Async.RunSynchronously
-                    |> List.where (fun i -> i.Name.StartsWith("#") |> not && (i.Name.Contains("books") || i.Name.Contains("")))
-                    |> getAllFiles2 
+                    |> List.where (fun i -> i.Name.StartsWith("#") |> not && (i.Name.Contains("books") || i.Name.Contains("books")))
+                    |> getAllFiles2  graphClient
                     
 
-let dest = "D:\matze\1drive#"
-items |> parallelWithThrottle 10 (downLoad dest)
+let dest = "c:\dump\matze\1drive#"
+items |> parallelWithThrottle 10 (downLoad graphClient dest)
 
-Console.Read |> ignore
+Console.WriteLine "Done!"
+Console.Read() |> ignore 
 
 
 
