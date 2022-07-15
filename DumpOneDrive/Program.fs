@@ -1,97 +1,52 @@
 ﻿open System
 open System.IO
-open System.Net.Http.Headers
+
+
 open System.Threading
 open System.Threading.Tasks
-open System.Text.Json.Serialization
-open System.Diagnostics
 open Microsoft.Graph
-open Microsoft.Identity.Client
 
-type Item = { Name  : string;
-              Path : string
-              ID : string;
-              URL    : string 
-              [<JsonIgnore>]
-              IsFolder : bool
-              [<JsonIgnore>]
-              IsFile : bool
-              [<JsonIgnore>]
-              Size : int64 Option
-              [<JsonIgnore>]
-              Hash : string Option}
+open DumpOneDrive.Item
+open DumpOneDrive.Common
+open DumpOneDrive.Auth
 
-let getResult (task:Task<'a>) =
-    task.GetAwaiter().GetResult()
-    
-let dump a =
-        Console.WriteLine(a.ToString())
-        a
-let dumpIgnore a = (dump a) |> ignore        
+let getFiles path (request: IDriveItemRequestBuilder) =
+    async {
+        request.RequestUrl |> dumpIgnore
 
-let getTokenBuilder () = 
-   let getAuth () = 
-       let clientId = "4a1aa1d5-c567-49d0-ad0b-cd957a47f842"
-       let tenant = "common";
-       let instance = "https://login.microsoftonline.com/";
-       let scopes = [ "user.read"; "Files.ReadWrite.All"; "Sites.Readwrite.All"; "Sites.Manage.All"];
-       
-       let clientApp = PublicClientApplicationBuilder.Create(clientId)
-                        .WithAuthority($"{instance}{tenant}")
-                        .WithDefaultRedirectUri()
-                        .WithBroker()
-                        .Build();
-       
-       let useDefault = false
-           
-       (if useDefault then
-         clientApp.AcquireTokenSilent(scopes, PublicClientApplication.OperatingSystemAccount).ExecuteAsync()
-       else
-         let wndHandle = Process.GetCurrentProcess().MainWindowHandle;
+        let! response =
+            request.Children.Request().GetAsync()
+            |> Async.AwaitTask
 
-        //var accounts = clientApp.GetAccountsAsync();	
+        return
+            response
+            |> Seq.map (fun (i: DriveItem) ->
+                { Name = i.Name
+                  ID = i.Id
+                  URL = i.WebUrl
+                  IsFolder = i.Folder <> null
+                  Path = path
+                  IsFile = i.File <> null
+                  Size = Option.ofNullable i.Size
+                  Hash =
+                    if i.File <> null
+                       && i.File.Hashes <> null
+                       && i.File.Hashes.QuickXorHash <> null then
+                        Some i.File.Hashes.QuickXorHash
+                    else
+                        None })
+            |> List.ofSeq
+    }
 
-         clientApp.AcquireTokenInteractive(scopes)
-                          //.WithParentActivityOrWindow(wndHandle)
-                          .WithPrompt(Prompt.SelectAccount)
-                          .ExecuteAsync()
-        )
-        |> getResult                                                       
-
-   let  authResult  =  getAuth ()
-   
-   
-   (fun () ->  authResult.AccessToken)
-
-let createAuth = 
-       let bearer = "Bearer"
-       let getToken = getTokenBuilder()
-       DelegateAuthenticationProvider(fun request -> Task.FromResult(request.Headers.Authorization <- AuthenticationHeaderValue(bearer, getToken()))) 
-
-let getFiles path (request: IDriveItemRequestBuilder)  =
-   async{
-      request.RequestUrl |> dumpIgnore
-      let! response = request.Children.Request().GetAsync() |> Async.AwaitTask
-      return response |> Seq.map (fun (i:DriveItem) ->
-        {Name = i.Name
-         ID = i.Id
-         URL = i.WebUrl
-         IsFolder = i.Folder <> null
-         Path = path
-         IsFile = i.File <> null
-         Size = Option.ofNullable i.Size
-         Hash = if i.File <> null && i.File.Hashes <> null && i.File.Hashes.QuickXorHash <> null then Some i.File.Hashes.QuickXorHash else None}) 
-       |> List.ofSeq 
-   }
-               
-let expandFolders (graphClient:GraphServiceClient) folders =
-    folders |> List.map (fun i -> getFiles (Path.Combine(i.Path, i.Name)) (graphClient.Me.Drive.Items[i.ID])) 
+let expandFolders (graphClient: GraphServiceClient) folders =
+    folders
+    |> List.map (fun i -> getFiles (Path.Combine(i.Path, i.Name)) (graphClient.Me.Drive.Items[i.ID]))
     |> (fun p -> Async.Parallel(p, 5))
-   // |> Async.Parallel
+    // |> Async.Parallel
     |> Async.RunSynchronously
     |> Array.collect Array.ofList
     |> List.ofArray
- 
+
 
 //let rec getAllFiles root =
 // let (folders, files) = List.partition (fun i -> i.IsFolder) root
@@ -100,72 +55,106 @@ let expandFolders (graphClient:GraphServiceClient) folders =
 //  | _ -> let expandedFolders = expandFolders folders
 //         (getAllFiles expandedFolders) @ files
 
-let rec  getAllFiles2  (graphClient:GraphServiceClient) root =
- seq{
-     let (folders, files) = root |> List.where (fun i -> i.IsFolder || i.IsFile) 
-                            |> List.partition (fun i -> i.IsFolder) 
-     yield! files
-     match folders with
-      | [] -> ()
-      | _ -> let expandedFolders = expandFolders  graphClient folders
-             yield! getAllFiles2 graphClient expandedFolders
-             ()
+let rec getAllFiles2 (graphClient: GraphServiceClient) root =
+    seq {
+        let (folders, files) =
+            root
+            |> List.where (fun i -> i.IsFolder || i.IsFile)
+            |> List.partition (fun i -> i.IsFolder)
+
+        yield! files
+
+        match folders with
+        | [] -> ()
+        | _ ->
+            let expandedFolders =
+                expandFolders graphClient folders
+
+            yield! getAllFiles2 graphClient expandedFolders
+            ()
     }
 
-let downLoad  (graphClient:GraphServiceClient) dest item =
-    let path = Path.Combine(dest, item.Path, item.Name)
+let downLoad (graphClient: GraphServiceClient) dest item =
+    let path =
+        Path.Combine(dest, item.Path, item.Name)
+
     if File.Exists path then
-         $"Exits {path}"
-    else 
-       try
+        $"Exits {path}"
+    else
+        try
             match item.Size with
             | Some 0L ->
                 File.Create(path).Dispose()
                 path
-            | Some length when length > int64(250 * 1024 * 1024) -> "Too Long" 
+            | Some length when length > int64 (250 * 1024 * 1024) -> "Too Long"
             | _ ->
-               
-                use stream =  graphClient.Me.Drive.Items[item.ID].Content.Request().GetAsync() |> Async.AwaitTask |> Async.RunSynchronously
-                Directory.CreateDirectory(Path.GetDirectoryName(path)) |> ignore
-                use file = new FileStream(path,FileMode.CreateNew)
-                stream.CopyTo(file)
-                $"{path} Downloaded" 
-          
-           
-       with
-        |  ex ->  $"Excep {path}{ex.ToString()}{if ex.InnerException <> null then ex.InnerException.ToString() else String.Empty}"
-   
 
-let  parallelWithThrottle limit operation items=
-    let semaphore = new SemaphoreSlim(limit, limit)
-    let continueAction = fun () -> semaphore.Release() |> ignore
-   
-    items |> Seq.iter(fun item -> 
+                use stream =
+                    graphClient
+                        .Me
+                        .Drive
+                        .Items[ item.ID ]
+                        .Content.Request()
+                        .GetAsync()
+                    |> Async.AwaitTask
+                    |> Async.RunSynchronously
+
+                Directory.CreateDirectory(Path.GetDirectoryName(path))
+                |> ignore
+
+                use file =
+                    new FileStream(path, FileMode.CreateNew)
+
+                stream.CopyTo(file)
+                $"{path} Downloaded"
+
+
+        with
+        | ex ->
+            $"Excep {path}{ex.ToString()}{if ex.InnerException <> null then
+                                              ex.InnerException.ToString()
+                                          else
+                                              String.Empty}"
+
+
+let parallelWithThrottle limit operation items =
+    let semaphore =
+        new SemaphoreSlim(limit, limit)
+
+    let continueAction =
+        fun () -> semaphore.Release() |> ignore
+
+    items
+    |> Seq.iter (fun item ->
         semaphore.Wait()
+
         let temp =
-            async{
+            async {
                 try
                     (operation item) |> dumpIgnore
                 finally
-                    continueAction()
+                    continueAction ()
             }
-        temp |> Async.Start
-      ) 
 
-let graphClient =  createAuth  |> GraphServiceClient
+        temp |> Async.Start)
 
-let items = (graphClient.Me.Drive.Root)  |> getFiles  "" |> Async.RunSynchronously
-                    |> List.where (fun i -> i.Name.StartsWith("#") |> not && (i.Name.Contains("books") || i.Name.Contains("")))
-                    |> getAllFiles2  graphClient
-                    
+let graphClient =
+    createAuth |> GraphServiceClient
+
+let items =
+    (graphClient.Me.Drive.Root)
+    |> getFiles ""
+    |> Async.RunSynchronously
+    |> List.where (fun i ->
+        i.Name.StartsWith("#") |> not
+        && (i.Name.Contains("books") || i.Name.Contains("")))
+    |> getAllFiles2 graphClient
+
 
 let dest = "D:\matze\1drive##"
-items |> parallelWithThrottle 5 (downLoad graphClient dest)
+
+items
+|> parallelWithThrottle 5 (downLoad graphClient dest)
 
 Console.WriteLine "Done!"
-Console.Read() |> ignore 
-
-
-
-                    
-          
+Console.Read() |> ignore

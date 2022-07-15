@@ -6,6 +6,9 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="Common.fs" />
+        <Compile Include="Item.fs" />
+        <Compile Include="Auth.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 
