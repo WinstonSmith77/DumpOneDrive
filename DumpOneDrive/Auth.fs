@@ -7,8 +7,8 @@ open Microsoft.Graph
 open Microsoft.Identity.Client
 open DumpOneDrive.Common
 
-let getTokenBuilder () =
-    let getAuth () =
+let private getTokenBuilder () =
+  let getAuth () =
         let clientId =
             "4a1aa1d5-c567-49d0-ad0b-cd957a47f842"
 
@@ -52,10 +52,10 @@ let getTokenBuilder () =
                  .ExecuteAsync())
         |> getResult
 
-    let authResult = getAuth ()
+  let authResult = getAuth ()
 
 
-    (fun () -> authResult.AccessToken)
+  (fun () -> authResult.AccessToken)
 
 let createAuth =
     let bearer = "Bearer"

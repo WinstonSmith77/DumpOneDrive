@@ -3,7 +3,6 @@ open System.IO
 
 
 open System.Threading
-open System.Threading.Tasks
 open Microsoft.Graph
 
 open DumpOneDrive.Item
@@ -151,7 +150,7 @@ let items =
     |> getAllFiles2 graphClient
 
 
-let dest = "D:\matze\1drive##"
+let dest = "c:\dump\matze\1drive##"
 
 items
 |> parallelWithThrottle 5 (downLoad graphClient dest)
