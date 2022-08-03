@@ -9,13 +9,19 @@ open DumpOneDrive.Item
 open DumpOneDrive.Common
 open DumpOneDrive.Auth
 
+let limit = 5
+let semaphore =
+        new SemaphoreSlim(limit, limit)
+
 let getFiles path (request: IDriveItemRequestBuilder) =
     async {
+        semaphore.Wait()
         request.RequestUrl |> dumpIgnore
 
         let! response =
             request.Children.Request().GetAsync()
             |> Async.AwaitTask
+        semaphore.Release() |> ignore 
 
         return
             response
@@ -37,15 +43,11 @@ let getFiles path (request: IDriveItemRequestBuilder) =
             |> List.ofSeq
     }
 
-let limit = 5
-let semaphore =
-        new SemaphoreSlim(limit, limit)
-
 let expandFolders (graphClient: GraphServiceClient) folders =
     folders
     |> List.map (fun i -> getFiles (Path.Combine(i.Path, i.Name)) (graphClient.Me.Drive.Items[i.ID]))
-    |> (fun p -> Async.Parallel(p, 5))
-    // |> Async.Parallel
+   // |> (fun p -> Async.Parallel(p, 5))
+    |> Async.Parallel
     |> Async.RunSynchronously
     |> Array.collect Array.ofList
     |> List.ofArray
@@ -76,7 +78,6 @@ let rec getAllFiles2 (graphClient: GraphServiceClient) root =
             yield! getAllFiles2 graphClient expandedFolders
             ()
     }
-
 
 let downLoad (graphClient: GraphServiceClient) dest item =
     let path =
@@ -150,7 +151,7 @@ let items =
     |> Async.RunSynchronously
     |> List.where (fun i ->
         i.Name.StartsWith("#") |> not
-        && (i.Name.Contains("books") || i.Name.Contains("")))
+        && (i.Name.Contains("books") || i.Name.Contains("books")))
     |> getAllFiles2 graphClient
 
 
