@@ -37,6 +37,10 @@ let getFiles path (request: IDriveItemRequestBuilder) =
             |> List.ofSeq
     }
 
+let limit = 5
+let semaphore =
+        new SemaphoreSlim(limit, limit)
+
 let expandFolders (graphClient: GraphServiceClient) folders =
     folders
     |> List.map (fun i -> getFiles (Path.Combine(i.Path, i.Name)) (graphClient.Me.Drive.Items[i.ID]))
@@ -73,6 +77,7 @@ let rec getAllFiles2 (graphClient: GraphServiceClient) root =
             ()
     }
 
+
 let downLoad (graphClient: GraphServiceClient) dest item =
     let path =
         Path.Combine(dest, item.Path, item.Name)
@@ -83,6 +88,7 @@ let downLoad (graphClient: GraphServiceClient) dest item =
         try
             match item.Size with
             | Some 0L ->
+                enforcePathExists path
                 File.Create(path).Dispose()
                 path
             | Some length when length > int64 (250 * 1024 * 1024) -> "Too Long"
@@ -98,8 +104,7 @@ let downLoad (graphClient: GraphServiceClient) dest item =
                     |> Async.AwaitTask
                     |> Async.RunSynchronously
 
-                Directory.CreateDirectory(Path.GetDirectoryName(path))
-                |> ignore
+                enforcePathExists path
 
                 use file =
                     new FileStream(path, FileMode.CreateNew)
@@ -116,9 +121,8 @@ let downLoad (graphClient: GraphServiceClient) dest item =
                                               String.Empty}"
 
 
-let parallelWithThrottle limit operation items =
-    let semaphore =
-        new SemaphoreSlim(limit, limit)
+
+let parallelWithThrottle  operation items =
 
     let continueAction =
         fun () -> semaphore.Release() |> ignore
@@ -153,7 +157,7 @@ let items =
 let dest = "c:\dump\matze\1drive##"
 
 items
-|> parallelWithThrottle 5 (downLoad graphClient dest)
+|> parallelWithThrottle (downLoad graphClient dest)
 
 Console.WriteLine "Done!"
 Console.Read() |> ignore
