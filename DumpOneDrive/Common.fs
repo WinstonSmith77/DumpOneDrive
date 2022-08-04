@@ -12,4 +12,4 @@ let dump a =
 
 let dumpIgnore a = (dump a) |> ignore
 
-let enforcePathExists (path:string) = Directory.CreateDirectory(Path.GetDirectoryName(path)) |> ignore
+let enforceFolderExists folder = Directory.CreateDirectory(folder) |> ignore

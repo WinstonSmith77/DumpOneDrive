@@ -80,16 +80,27 @@ let rec getAllFiles2 (graphClient: GraphServiceClient) root =
     }
 
 let downLoad (graphClient: GraphServiceClient) dest item =
+    
+    let folder =  Path.Combine(dest, item.Path)
     let path =
-        Path.Combine(dest, item.Path, item.Name)
+        Path.Combine(folder, item.Name)
 
     if File.Exists path then
         $"Exits {path}"
     else
         try
+            enforceFolderExists folder 
+            
+            match item.Hash with
+            |Some hash ->
+                 let folderHash = Path.Combine(folder, ".hash")
+                 let pathHash = Path.Combine(folderHash, item.Name + ".hash")   
+                 enforceFolderExists folderHash
+                 File.WriteAllText(pathHash, hash)
+            |None -> ()     
+           
             match item.Size with
             | Some 0L ->
-                enforcePathExists path
                 File.Create(path).Dispose()
                 path
             | Some length when length > int64 (250 * 1024 * 1024) -> "Too Long"
@@ -105,8 +116,6 @@ let downLoad (graphClient: GraphServiceClient) dest item =
                     |> Async.AwaitTask
                     |> Async.RunSynchronously
 
-                enforcePathExists path
-
                 use file =
                     new FileStream(path, FileMode.CreateNew)
 
@@ -120,7 +129,6 @@ let downLoad (graphClient: GraphServiceClient) dest item =
                                               ex.InnerException.ToString()
                                           else
                                               String.Empty}"
-
 
 
 let parallelWithThrottle  operation items =
