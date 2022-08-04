@@ -85,16 +85,23 @@ let downLoad (graphClient: GraphServiceClient) dest item =
     let path =
         Path.Combine(folder, item.Name)
 
-    if File.Exists path then
-        $"Exits {path}"
+    let folderHash = Path.Combine(folder, ".hash")
+    let pathHash = Path.Combine(folderHash, item.Name + ".hash")  
+    
+    if File.Exists path &&
+       File.Exists pathHash &&
+       match item.Hash with
+       | Some hash -> hash = File.ReadAllText(pathHash)
+       | None -> false
+       then
+        $"Exits {path} and hashes match"
     else
         try
             enforceFolderExists folder 
             
             match item.Hash with
             |Some hash ->
-                 let folderHash = Path.Combine(folder, ".hash")
-                 let pathHash = Path.Combine(folderHash, item.Name + ".hash")   
+                 
                  enforceFolderExists folderHash
                  File.WriteAllText(pathHash, hash)
             |None -> ()     
