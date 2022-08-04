@@ -9,7 +9,7 @@ open DumpOneDrive.Item
 open DumpOneDrive.Common
 open DumpOneDrive.Auth
 
-let limit = 5
+let limit = 10
 let semaphore =
         new SemaphoreSlim(limit, limit)
 
@@ -87,12 +87,13 @@ let downLoad (graphClient: GraphServiceClient) dest item =
 
     let folderHash = Path.Combine(folder, ".hash")
     let pathHash = Path.Combine(folderHash, item.Name + ".hash")  
+    let hashExitsOnDisk = File.Exists pathHash 
     
     if File.Exists path &&
-       File.Exists pathHash &&
+       (not hashExitsOnDisk || hashExitsOnDisk &&
        match item.Hash with
        | Some hash -> hash = File.ReadAllText(pathHash)
-       | None -> false
+       | None -> false)
        then
         $"Exits {path} and hashes match"
     else
@@ -101,7 +102,6 @@ let downLoad (graphClient: GraphServiceClient) dest item =
             
             match item.Hash with
             |Some hash ->
-                 
                  enforceFolderExists folderHash
                  File.WriteAllText(pathHash, hash)
             |None -> ()     
@@ -166,14 +166,14 @@ let items =
     |> Async.RunSynchronously
     |> List.where (fun i ->
         i.Name.StartsWith("#") |> not
-        && (i.Name.Contains("books") || i.Name.Contains("books")))
+        && (i.Name.Contains("unterlagen") || i.Name.Contains("keys")))
     |> getAllFiles2 graphClient
 
 
-let dest = "c:\dump\matze\1drive##"
+let dest = "c:\dump\matze\1drive"
 
 items
 |> parallelWithThrottle (downLoad graphClient dest)
 
 Console.WriteLine "Done!"
-Console.Read() |> ignore
+Console.ReadKey() |> ignore
